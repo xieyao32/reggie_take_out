@@ -1,5 +1,6 @@
 package com.reggie.controller;
 
+import ch.qos.logback.core.util.TimeUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -15,13 +16,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @Slf4j
@@ -36,6 +36,9 @@ public class DishController {
 
     @Autowired
     private DishFlavorService dishFlavorService;
+
+    @Autowired
+    private RedisTemplate redisTemplate;
 
 
     /**
@@ -97,6 +100,10 @@ public class DishController {
 
         dishService.saveWithFlavor(dishDto);
 
+        //清除redis中菜品的缓存（所有缓存，可以精确清除缓存）
+        Set keys = redisTemplate.keys("dish_*");
+        redisTemplate.delete(keys);
+
         return R.success("添加菜成功");
     }
 
@@ -120,6 +127,10 @@ public class DishController {
 
         dishService.updateWithFlavor(dishDto);
 
+        //清除redis中菜品的缓存（所有缓存，可以精确清除缓存）
+        Set keys = redisTemplate.keys("dish_*");
+        redisTemplate.delete(keys);
+
         return R.success("修改成功");
     }
 
@@ -137,6 +148,10 @@ public class DishController {
 
         dishService.update(updateWrapper);
 
+        //清除redis中菜品的缓存（所有缓存，可以精确清除缓存）
+        Set keys = redisTemplate.keys("dish_*");
+        redisTemplate.delete(keys);
+
         return R.success("更改成功");
     }
 
@@ -149,6 +164,10 @@ public class DishController {
     public R<String> delete(@RequestParam Long[] ids){
 
         dishService.removeWithFlavor(ids);
+
+        //清除redis中菜品的缓存（所有缓存，可以精确清除缓存）
+        Set keys = redisTemplate.keys("dish_*");
+        redisTemplate.delete(keys);
 
         return R.success("删除成功");
     }
@@ -177,13 +196,28 @@ public class DishController {
     @GetMapping("/list")
     public R<List<DishDto>> list(Dish dish){
 
+        String key = "dish_"+dish.getCategoryId()+"_"+dish.getStatus();
+
+        List<DishDto> list = null;
+
+        //从redis中获取缓存数据
+        list = (List<DishDto>) redisTemplate.opsForValue().get(key);
+        //如果redis缓存有数据，则直接取出
+        if (list != null){
+            return R.success(list);
+        }
+
+        //如果redis中没有缓存，则查询数据库，并将结果存入redis缓存中
+
+        list = new ArrayList<>();
+
         LambdaQueryWrapper<Dish> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(dish.getCategoryId() != null,Dish::getCategoryId,dish.getCategoryId());
         queryWrapper.eq(Dish::getStatus,1);
         queryWrapper.orderByAsc(Dish::getSort).orderByDesc(Dish::getUpdateTime);
         List<Dish> dishList = dishService.list(queryWrapper);
 
-        List<DishDto> list = new ArrayList<>();
+
 
         for (Dish d : dishList){
             DishDto dishDto = new DishDto();
@@ -195,6 +229,8 @@ public class DishController {
             dishDto.setFlavors(dishFlavors);
             list.add(dishDto);
         }
+
+        redisTemplate.opsForValue().set(key,list,60, TimeUnit.MINUTES);
 
         return R.success(list);
     }
