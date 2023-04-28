@@ -37,7 +37,11 @@ public class LoginCheckFilter implements Filter {
             "/employee/login",
             "/employee/logout",
             "/user/sendMsg",
-            "/user/login"
+            "/user/login",
+            "/doc.html",
+            "/webjars/**",
+            "/swagger-resources",
+            "/v2/api-docs"
         };
 
         //2.判断是否是所要拦截的路径
